@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Event;
+use App\Models\Workshop;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Foundation\Validation\ValidatesRequests;
@@ -182,28 +183,34 @@ class EventsController extends BaseController
      */
 
     public function getFutureEventsWithWorkshops() {
-        $subquery = DB::table('workshops')
-        ->select('event_id', DB::raw('MIN(start) as min_start'))
+        $subquery = Workshop::select('event_id', DB::raw('MIN(start) as min_start'))
         ->groupBy('event_id')
         ->havingRaw('min_start > NOW()');
 
-            $events = DB::table('events')
-                ->joinSub($subquery, 'sub', function ($join) {
-                    $join->on('events.id', '=', 'sub.event_id');
-                })
-                ->join('workshops', 'events.id', '=', 'workshops.event_id')
-                ->select('events.*', 'workshops.id', 'workshops.start', 'workshops.end', 'workshops.name')
-                ->get();
+    $events = Event::join('workshops', 'events.id', '=', 'workshops.event_id')
+        ->joinSub($subquery, 'sub', function ($join) {
+            $join->on('events.id', '=', 'sub.event_id');
+        })
+        ->select('events.*')
+        ->distinct()
+        ->get();
 
-            $groupedEvents = collect($events)->groupBy('id')->map(function ($group) {
-                $event = $group->first();
-                $event->workshops = $group->map(function ($item) {
-                    unset($item->id, $item->start, $item->end, $item->name);
-                    return $item;
-                })->all();
-                return $event;
-            })->values();
+    $eventIds = $events->pluck('id');
 
-            return $groupedEvents;
-    }
+    $workshops = Workshop::whereIn('event_id', $eventIds)->get();
+
+    $groupedEvents = $events->map(function ($event) use ($workshops) {
+        $eventWorkshops = $workshops->where('event_id', $event->id)->map(function ($workshop) {
+            unset($workshop->id, $workshop->start, $workshop->end, $workshop->event_id);
+            return $workshop;
+        });
+
+        $event->workshops = $eventWorkshops;
+        return $event;
+    });
+
+    return $groupedEvents->take(2);
+
+}
+
 }
