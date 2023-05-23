@@ -8,6 +8,7 @@ use Illuminate\Foundation\Bus\DispatchesJobs;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 
 class EventsController extends BaseController
 {
@@ -101,7 +102,9 @@ class EventsController extends BaseController
      */
 
     public function getEventsWithWorkshops() {
-        throw new \Exception('implement in coding task 1');
+        $events = Event::with('workshops')->get();
+
+        return $events;
     }
 
 
@@ -179,6 +182,28 @@ class EventsController extends BaseController
      */
 
     public function getFutureEventsWithWorkshops() {
-        throw new \Exception('implement in coding task 2');
+        $subquery = DB::table('workshops')
+        ->select('event_id', DB::raw('MIN(start) as min_start'))
+        ->groupBy('event_id')
+        ->havingRaw('min_start > NOW()');
+
+            $events = DB::table('events')
+                ->joinSub($subquery, 'sub', function ($join) {
+                    $join->on('events.id', '=', 'sub.event_id');
+                })
+                ->join('workshops', 'events.id', '=', 'workshops.event_id')
+                ->select('events.*', 'workshops.id', 'workshops.start', 'workshops.end', 'workshops.name')
+                ->get();
+
+            $groupedEvents = collect($events)->groupBy('id')->map(function ($group) {
+                $event = $group->first();
+                $event->workshops = $group->map(function ($item) {
+                    unset($item->id, $item->start, $item->end, $item->name);
+                    return $item;
+                })->all();
+                return $event;
+            })->values();
+
+            return $groupedEvents;
     }
 }
